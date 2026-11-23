@@ -29,8 +29,8 @@ The CLI discovers most of its options from the signatures of `ypf_read`, `yuride
 ### 1. Install Yuri and its dependencies
 
 ```bash
-python -m pip install --upgrade pip
-python -m pip install .
+pip install --upgrade pip
+pip install .
 ```
 
 The dependencies (`murmurhash2`, `xor-cipher`, and `deflate`) are declared in `pyproject.toml`; there is no need to install them separately.
@@ -38,7 +38,7 @@ The dependencies (`murmurhash2`, `xor-cipher`, and `deflate`) are declared in `p
 For development, use an editable installation instead:
 
 ```bash
-python -m pip install -e .
+pip install -e .
 ```
 
 An editable installation makes changes to the local source package available without reinstalling it. Both installation methods work from a local checkout or source archive; neither requires a repository-specific Git URL.
@@ -101,8 +101,10 @@ your-working-folder/
 Then, from `your-working-folder`, run:
 
 ```bash
-yuri all
+yuri all --set key=<xor-key> --set ver=<ybn-version>
 ```
+
+`compile` has no default for the XOR key and the YBN version, so they must be given. `extract` and `decompile` alone need neither: the core detects what it can (for example, the version in the file headers).
 
 With the example defaults in `yuri/cli/defaults.py`, the main directories are:
 
@@ -123,7 +125,7 @@ For a typical translation workflow, extract and decompile once, edit the generat
 yuri extract
 yuri decompile
 # Edit the .yuri files.
-yuri compile
+yuri compile --key <xor-key> --ver <ybn-version>
 ```
 
 ## How options work
@@ -143,7 +145,7 @@ For each supported parameter, the CLI uses the first applicable value in this or
 3. The parameter's default in the core function.
 4. If there is no default, the CLI reports the parameter as required.
 
-The defaults in `yuri/cli/defaults.py` mirror the example setup in `main.py` and are tailored to **Unionism Quartet**. A different game will usually need different values for the YBN version and YSTB XOR key.
+The defaults in `yuri/cli/defaults.py` are a convenient starting point taken from the example setup in `main.py` (folders, encodings, syntax). Game-specific values, namely the YBN versions and the YSTB XOR key, are intentionally not defaulted. When the core can detect a value (for example, reading the version from the file headers), the CLI lets it; when it cannot, the option is required. Auto-detection can be wrong for custom builds, so if a command fails, pass `--ver` and/or `--key` explicitly.
 
 ---
 
@@ -224,8 +226,8 @@ flowchart TD
 | `--dcls CLASS` | Selects the output syntax/decompiler implementation: `YDecYuri` for Yuri's custom syntax or `YDecYuris` for the official-style syntax. | `YDecYuri` |
 | `--mp-parallel` / `--no-mp-parallel` | Enables or disables multiprocessing while processing scripts. | Disabled |
 | `--also-dump` / `--no-also-dump` | Writes additional `.dump` files for script commands and metadata. | Enabled |
-| `--key INTEGER` | XOR key used to decode YSTB script data. The correct key is game-specific. | `0x9C28430C` |
-| `--ver VERSION` | YBN/YSTB format version used while reading the game's data. This is not necessarily the version reported by the YPF archive or executable. | `480` |
+| `--key INTEGER` | XOR key used to decode YSTB script data. The correct key is game-specific. When omitted, the core uses its built-in key for the detected format version, which may not match custom builds. | Core default: `None` |
+| `--ver VERSION` | YBN/YSTB format version used while reading the game's data. When omitted, the version is read from each file header. Pass it when the header does not report the format in use (custom builds). | Core default: `None` (read from the file header) |
 | `--word-enc ENCODING` | Optional encoding override for `WORD` command text. When omitted, it falls back to `--ienc`. | Unset (uses `--ienc`) |
 | `--dry-run` | Prints the decompiler call without generating files. | Off |
 
@@ -284,17 +286,17 @@ flowchart TD
 
 | Option | Description | Default |
 |---|---|---|
-| `--key INTEGER` | XOR key used when linking/encoding generated YSTB data. It must match the target game. | `0x9C28430C` |
+| `--key INTEGER` | XOR key used when linking/encoding generated YSTB data. It must match the target game. | **Required** |
 | `--iroot DIR` | Directory containing `.yuri` source files to compile. | `ybn/decoded/unofficial` |
-| `--ver VERSION` | Target YBN/compiler format version used to compile scripts. | `480` |
+| `--ver VERSION` | Target YBN/compiler format version used to compile scripts. | **Required** |
 | `--wroot DIR` | Directory for intermediate compilation and link/compression cache files. | `ybn/encoded/temp` |
 | `--troot DIR` | Directory containing original YBN templates, including `ysv.ybn`, `ysc.ybn`, `yse.ybn`, and `yscfg.ybn`. | `ybn/original/ysbin` |
 | `--o-ypf FILE` | Path of the rebuilt `.ypf` archive. | `ypf/ysbin-output.ypf` |
 | `--o-ybn DIR` | Additionally exports generated YBN entries as loose files under this directory. The `.ypf` is still generated. | Unset |
 | `--i-enc ENCODING` | Encoding used to read `.yuri` source files. | `utf-8` |
 | `--t-enc ENCODING` | Encoding used to read original template files in `--troot`. | Core default: `cp932` |
-| `--t-ver VERSION` | Version used to parse original template files in `--troot`. | `480` |
-| `--w-ver VERSION` | Version written into generated YBN files. | `554` |
+| `--t-ver VERSION` | Version used to parse original template files in `--troot`. | Core default: `None` (read from the template files) |
+| `--w-ver VERSION` | Version written into generated YBN files. | Core default: `None` (uses `--ver`) |
 | `--o-enc ENCODING` | Encoding used for strings written into generated YBN data. | `cp932` |
 | `--mp-parallel` / `--no-mp-parallel` | Enables or disables multiprocessing during compilation and linking/compression. | Disabled |
 | `--force-recompile` / `--no-force-recompile` | Forces recompilation instead of reusing valid intermediate cache entries in `--wroot`. | Disabled |
@@ -309,7 +311,7 @@ There are three separate YBN version controls:
 - `--t-ver`: version used to read the original template YBN files.
 - `--w-ver`: version written into the generated YBN files.
 
-`--ypf-ver` is separate: it controls the header of the final `.ypf`. By default, the CLI detects this version from `--ypf-in`. If the input archive cannot be read, pass `--ypf-ver` explicitly when the fallback core default is not suitable.
+`--ypf-ver` is separate: it controls the header of the final `.ypf`. By default, the CLI detects this version from `--ypf-in`. If the input archive cannot be read, the core falls back to `--ver`; pass `--ypf-ver` explicitly when that is not suitable.
 
 Example:
 
@@ -319,7 +321,8 @@ yuri compile \
     --troot work/original/ysbin \
     --o-ypf output/translated.ypf \
     --o-ybn output/ysbin \
-    --w-ver 554
+    --key <xor-key> \
+    --ver <ybn-version>
 ```
 
 Compilation is incremental. Valid cached results in `--wroot` are reused unless `--force-recompile` is enabled.
@@ -368,11 +371,11 @@ A step-specific override (`--ext`, `--dec`, or `--com`) takes precedence over a 
 Examples:
 
 ```bash
-# Apply the key to both decompile and compile.
-yuri all --set key=0x1234ABCD
+# Apply the key and version to both decompile and compile.
+yuri all --set key=0x1234ABCD --set ver=480
 
 # Override only the compiler's output YBN version.
-yuri all --com w_ver=600
+yuri all --set key=0x1234ABCD --set ver=480 --com w_ver=600
 
 # Use the official-style decompiler only for the decompile step.
 yuri all --dec dcls=YDecYuris
@@ -399,12 +402,12 @@ The CLI omits the file-handle parameter of `ypf_read` because it opens `--ypf-in
 Every command accepts `--dry-run`. It prints the call that would be made to the core without executing the requested operation. Use it to inspect resolved values before running a longer job:
 
 ```bash
-yuri compile --w-ver 600 --dry-run
+yuri compile --key 0x1234ABCD --ver 480 --w-ver 600 --dry-run
 ```
 
 ## Common issues
 
 - **`could not import yuri...`**: activate the virtual environment where Yuri was installed, or reinstall from the project root with `python -m pip install .`.
-- **`missing required parameters`**: a core parameter has no value or default; pass the indicated option.
+- **`missing required parameters`**: the core has no default for a parameter (for example `--key` and `--ver` when compiling); pass the indicated options. With `all`, this is reported before any step runs.
 - **`ypf_ver not detected` warning**: the original archive could not be read. Pass `--ypf-in` with a valid archive or set `--ypf-ver` explicitly.
-- **Decompilation fails for a different game**: verify the YBN version passed to `--ver` and the game's YSTB XOR key. See [the technical breakdown](../../yuri.md).
+- **Decompilation fails (for example a `hash(name)` mismatch)**: the version or key detected automatically may be wrong for this game. Pass `--ver` and `--key` explicitly. See [the technical breakdown](../../yuri.md).

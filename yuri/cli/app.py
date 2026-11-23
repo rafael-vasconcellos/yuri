@@ -47,13 +47,29 @@ def detect_ypf_version(read: Step, ypf_in: str) -> int | None:
         return None
 
 
+def call_core(cmd: str, step: Step, args: tuple, kwargs: dict):
+    """Call the core. On failure, add a note about values the core detected on its own."""
+    try:
+        return step.fn(*args, **kwargs)
+    except Exception as e:
+        if isinstance(e, OSError):
+            raise  # missing files etc. have nothing to do with auto-detection
+        auto = [f'--{n.replace("_", "-")}' for n in D.AUTO_DETECTED.get(cmd, ())
+                if n in step.names and n not in kwargs]
+        if auto:
+            e.add_note(f'note (cli): {", ".join(auto)} not given, so the core detected the value '
+                       f'automatically. Auto-detection can be wrong for custom builds; '
+                       f'try passing it explicitly.')
+        raise
+
+
 def do_extract(read: Step, ypf_in: str, out_dir: str, kwargs: dict, dry: bool) -> int | None:
     if dry:
         print(format_call('ypf_read', kwargs, first=f'f=open({ypf_in!r}, "rb")'))
         print(f'-> would write the files to {out_dir!r}')
         return detect_ypf_version(read, ypf_in)
     with open(ypf_in, 'rb') as fp:
-        entries, version = read.fn(fp, **kwargs)
+        entries, version = call_core('extract', read, (fp,), kwargs)
     print('The actual version of the YPF file is:', version)
     for ent in entries:  # (name, type, compression, data, uncompressed_size)
         name, data = ent[0], ent[3]
@@ -65,11 +81,11 @@ def do_extract(read: Step, ypf_in: str, out_dir: str, kwargs: dict, dry: bool) -
     return version
 
 
-def do_run(step: Step, label: str, kwargs: dict, dry: bool) -> None:
+def do_run(cmd: str, step: Step, label: str, kwargs: dict, dry: bool) -> None:
     if dry:
         print(format_call(label, kwargs))
     else:
-        step.fn(**kwargs)
+        call_core(cmd, step, (), kwargs)
 
 
 def with_ypf_version(cmd: str, step: Step, kwargs: dict, version: int | None) -> None:
@@ -94,7 +110,7 @@ def cmd_extract(ns, steps):
 def cmd_decompile(ns, steps):
     step = steps['decompile']
     kwargs = step.build_kwargs(Step.provided(ns), D.DECOMPILE)
-    do_run(step, 'yuridec.run', kwargs, ns.dry_run)
+    do_run('decompile', step, 'yuridec.run', kwargs, ns.dry_run)
 
 
 def cmd_compile(ns, steps):
@@ -102,7 +118,7 @@ def cmd_compile(ns, steps):
     kwargs = step.build_kwargs(Step.provided(ns), D.COMPILE)
     if D.FROM_INPUT_YPF_VERSION.get('compile') not in kwargs:
         with_ypf_version('compile', step, kwargs, detect_ypf_version(steps['extract'], ns.ypf_in))
-    do_run(step, 'yuricom.run', kwargs, ns.dry_run)
+    do_run('compile', step, 'yuricom.run', kwargs, ns.dry_run)
 
 
 def _split(raw: str) -> tuple[str, str]:
@@ -132,16 +148,16 @@ def cmd_all(ns, steps):
     for c, name in D.UNDER_EXTRACT_DIR.items():
         defaults[c][name] = root
 
+    # Resolve every step first, so missing required parameters fail before any slow step runs.
+    kws = {c: steps[c].build_kwargs(overrides[c], defaults[c]) for c in CORE}
+
     print('==> [1/3] extract')
-    kw = steps['extract'].build_kwargs(overrides['extract'], defaults['extract'])
-    version = do_extract(steps['extract'], ns.ypf_in, ns.extract_dir, kw, ns.dry_run)
+    version = do_extract(steps['extract'], ns.ypf_in, ns.extract_dir, kws['extract'], ns.dry_run)
     print('==> [2/3] decompile')
-    kw = steps['decompile'].build_kwargs(overrides['decompile'], defaults['decompile'])
-    do_run(steps['decompile'], 'yuridec.run', kw, ns.dry_run)
+    do_run('decompile', steps['decompile'], 'yuridec.run', kws['decompile'], ns.dry_run)
     print('==> [3/3] compile')
-    kw = steps['compile'].build_kwargs(overrides['compile'], defaults['compile'])
-    with_ypf_version('compile', steps['compile'], kw, version)
-    do_run(steps['compile'], 'yuricom.run', kw, ns.dry_run)
+    with_ypf_version('compile', steps['compile'], kws['compile'], version)
+    do_run('compile', steps['compile'], 'yuricom.run', kws['compile'], ns.dry_run)
 
 
 # --- parser ------------------------------------------------------------------
