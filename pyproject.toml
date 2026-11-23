@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yuri-yu-ris"
+version = "0.1.0"
+description = "Decompiler, compiler, and command-line tools for the Yu-Ris engine"
+readme = "yuri/cli/README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "murmurhash2>=0.2.10",
+    "xor-cipher",
+    "deflate",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.scripts]
+yuri = "yuri.cli.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["yuri*"]
