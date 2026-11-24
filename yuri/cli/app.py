@@ -7,6 +7,7 @@ import sys
 from os import makedirs, path
 
 from . import defaults as D
+from . import report
 from .params import CliError, Step, format_call
 
 # Where each core function lives. If the core moves things, only this table changes.
@@ -54,6 +55,11 @@ def call_core(cmd: str, step: Step, args: tuple, kwargs: dict):
     except Exception as e:
         if isinstance(e, OSError):
             raise  # missing files etc. have nothing to do with auto-detection
+        if isinstance(e, UnicodeError):
+            opts = [f'--{n.replace("_", "-")}' for n in ('ienc', 'word_enc') if n in step.names]
+            e.add_note(f'note (cli): a text field could not be decoded. '
+                       f'(see {", ".join(opts)}).')
+            raise
         auto = [f'--{n.replace("_", "-")}' for n in D.AUTO_DETECTED.get(cmd, ())
                 if n in step.names and n not in kwargs]
         if auto:
@@ -71,6 +77,8 @@ def do_extract(read: Step, ypf_in: str, out_dir: str, kwargs: dict, dry: bool) -
     with open(ypf_in, 'rb') as fp:
         entries, version = call_core('extract', read, (fp,), kwargs)
     print('The actual version of the YPF file is:', version)
+    flag = '--' + D.FROM_INPUT_YPF_VERSION['compile'].replace('_', '-')
+    print(f'-> for compile: {flag} {version} (compile reads it from --ypf-in by default)')
     for ent in entries:  # (name, type, compression, data, uncompressed_size)
         name, data = ent[0], ent[3]
         print('Extracted file: ' + name)
@@ -86,6 +94,15 @@ def do_run(cmd: str, step: Step, label: str, kwargs: dict, dry: bool) -> None:
         print(format_call(label, kwargs))
     else:
         call_core(cmd, step, (), kwargs)
+
+
+def do_decompile(steps: dict[str, Step], kwargs: dict, dry: bool) -> None:
+    iroot = kwargs.get('iroot')
+    if dry or not iroot:
+        return do_run('decompile', steps['decompile'], 'yuridec.run', kwargs, dry)
+    report.log_headers(iroot, kwargs)
+    do_run('decompile', steps['decompile'], 'yuridec.run', kwargs, dry)
+    report.log_values(iroot, kwargs, steps['compile'].names)
 
 
 def with_ypf_version(cmd: str, step: Step, kwargs: dict, version: int | None) -> None:
@@ -108,9 +125,8 @@ def cmd_extract(ns, steps):
 
 
 def cmd_decompile(ns, steps):
-    step = steps['decompile']
-    kwargs = step.build_kwargs(Step.provided(ns), D.DECOMPILE)
-    do_run('decompile', step, 'yuridec.run', kwargs, ns.dry_run)
+    kwargs = steps['decompile'].build_kwargs(Step.provided(ns), D.DECOMPILE)
+    do_decompile(steps, kwargs, ns.dry_run)
 
 
 def cmd_compile(ns, steps):
@@ -154,7 +170,7 @@ def cmd_all(ns, steps):
     print('==> [1/3] extract')
     version = do_extract(steps['extract'], ns.ypf_in, ns.extract_dir, kws['extract'], ns.dry_run)
     print('==> [2/3] decompile')
-    do_run('decompile', steps['decompile'], 'yuridec.run', kws['decompile'], ns.dry_run)
+    do_decompile(steps, kws['decompile'], ns.dry_run)
     print('==> [3/3] compile')
     with_ypf_version('compile', steps['compile'], kws['compile'], version)
     do_run('compile', steps['compile'], 'yuricom.run', kws['compile'], ns.dry_run)

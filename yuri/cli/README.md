@@ -104,7 +104,7 @@ Then, from `your-working-folder`, run:
 yuri all --set key=<xor-key> --set ver=<ybn-version>
 ```
 
-`compile` has no default for the XOR key and the YBN version, so they must be given. `extract` and `decompile` alone need neither: the core detects what it can (for example, the version in the file headers).
+`compile` has no default for the XOR key and the YBN version, so they must be given. `extract` and `decompile` alone need neither: the core detects what it can (for example, the version in the file headers), and the CLI logs the detected values so they can be passed to `compile` (see [Values reported for `compile`](#values-reported-for-compile)).
 
 With the example defaults in `yuri/cli/defaults.py`, the main directories are:
 
@@ -252,6 +252,23 @@ yuri decompile \
     --no-also-dump \
     --ver <ybn-version>
 ```
+
+### Values reported for `compile`
+
+`compile` needs a few values (`--key`, `--ver`, and sometimes `--t-ver`/`--w-ver`) that `extract` and `decompile` can detect while they run. Both commands log them:
+
+- `extract` prints the YPF version found in the archive header.
+- `decompile` prints the version found in the YBN headers *before* it starts and, after it succeeds, the YBN version and XOR key actually used, plus a suggested set of options for `compile`:
+
+```text
+YBN header version(s): 554
+Values for compile:
+  YBN version in use: 480 (given with --ver)
+  XOR key in use:     0xD36FAC96 (the core's built-in key for this version)
+  Suggested options: --ver 480 --key 0xD36FAC96 --t-ver 480 --w-ver 554
+```
+
+The report is best effort and never fails the command; if a value cannot be read, a warning is printed instead. Treat the suggestion as a starting point: when the headers report a different version than the one in use (custom builds), it also suggests `--t-ver` and `--w-ver`. If `--ver` differs from the header version, `decompile` warns before running, which helps to diagnose assertion errors such as a `hash(name)` mismatch.
 
 ## `compile`
 

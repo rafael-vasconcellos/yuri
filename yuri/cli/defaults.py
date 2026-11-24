@@ -36,7 +36,7 @@ DECOMPILE: dict = {
     'oenc': 'utf-8',
     'dcls': 'YDecYuri',        # custom YURI syntax (the official one would be 'YDecYuris')
     'mp_parallel': False,
-    'also_dump': True,
+    'also_dump': False,
 }
 
 COMPILE: dict = {
