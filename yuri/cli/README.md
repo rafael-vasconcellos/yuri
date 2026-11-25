@@ -229,6 +229,7 @@ flowchart TD
 | `--key INTEGER` | XOR key used to decode YSTB script data. The correct key is game-specific. When omitted, the core uses its built-in key for the detected format version, which may not match custom builds. | Core default: `None` |
 | `--ver VERSION` | YBN/YSTB format version used while reading the game's data. When omitted, the version is read from each file header. Pass it when the header does not report the format in use (custom builds). | Core default: `None` (read from the file header) |
 | `--word-enc ENCODING` | Optional encoding override for `WORD` command text. When omitted, it falls back to `--ienc`. | Unset (uses `--ienc`) |
+| `--sjis-ext FILE` | `sjis_ext.bin` of a patch made with VNTextPatch. Restores the characters written with its Shift-JIS tunnel encoding and decodes the YU-RIS control codes (line break, page break...) in text. Replaces `--ienc`, so the two cannot be combined. | Unset |
 | `--dry-run` | Prints the decompiler call without generating files. | Off |
 
 Example using a different input folder and key:
@@ -252,6 +253,39 @@ yuri decompile \
     --no-also-dump \
     --ver <ybn-version>
 ```
+
+### Files written by VNTextPatch (Shift-JIS tunnel and control codes)
+
+A translation patch made with VNTextPatch can contain two things that `cp932` cannot read. The first is the Shift-JIS tunnel. It stores the characters that Shift-JIS cannot represent as a "tunnel" pair: a lead byte followed by a trail byte below `0x40`. The `cp932` decoder rejects those pairs, and `decompile` stops with an error such as:
+
+```text
+UnicodeDecodeError: 'cp932' codec can't decode byte 0xef in position 63: illegal multibyte sequence
+```
+
+The pairs are indexes into `sjis_ext.bin`, the file VNTextPatch saves next to the patched output. Pass it to restore the original characters:
+
+```bash
+yuri decompile --iroot update1/ysbin --sjis-ext update1/sjis_ext.bin
+```
+
+The second is the YU-RIS control codes: inside text, `0xEF` followed by another byte is an engine command, not a character. `--sjis-ext` also decodes them, using the standard forms of VNTextPatch:
+
+| Bytes | Meaning | Decoded as |
+|---|---|---|
+| `EF F0` | Line break | `\r\n` |
+| `EF F2` | Page break | `\p` |
+| `EF F3` | Wait for click | `\c` |
+| `EF F5` | Unknown | `\u` |
+
+In the generated `.yuri` file they appear with the escaping of the Yuri syntax (`\r\n`, `\\p`, `\\c`, `\\u`). Any other `0xEF` code stops `decompile` with an error that names the code and its position in the text.
+
+Notes:
+
+- The `.ybn` files do not store the table, so without `sjis_ext.bin` the characters cannot be recovered.
+- This option is read-only: `compile` cannot write tunnel text or control codes, so recompiling decoded text does not restore them.
+- A `sjis_ext.bin` with no characters (an empty file) is valid; use it when the patch has control codes but no tunneled characters.
+- It needs `--no-mp-parallel` (the default) on Windows, because worker processes started with `spawn` do not have the decoder.
+- A `sjis_ext.bin` that is shorter than the one used to build the patch makes `decompile` fail on the first code outside the table.
 
 ### Values reported for `compile`
 

@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import multiprocessing
 import sys
 from os import makedirs, path
 
 from . import defaults as D
-from . import report
+from . import report, sjis_tunnel
 from .params import CliError, Step, format_call
 
 # Where each core function lives. If the core moves things, only this table changes.
@@ -16,7 +17,7 @@ CORE = {
     'decompile': ('yuri.yuridec', 'run'),
     'compile': ('yuri.yuricom', 'run'),
 }
-RESERVED = {'-h', '--help', '--ypf-in', '--out-dir', '--dry-run'}
+RESERVED = {'-h', '--help', '--ypf-in', '--out-dir', '--dry-run', '--sjis-ext'}
 
 
 def load_steps() -> dict[str, Step]:
@@ -96,6 +97,26 @@ def do_run(cmd: str, step: Step, label: str, kwargs: dict, dry: bool) -> None:
         call_core(cmd, step, (), kwargs)
 
 
+def use_sjis_ext(ns, step: Step, kwargs: dict) -> None:
+    """Decode text written by VNTextPatch: Shift-JIS tunnel (needs its sjis_ext.bin) and control codes."""
+    if not ns.sjis_ext:
+        return
+    if 'ienc' not in step.names:
+        raise CliError('--sjis-ext needs the core to have an "ienc" parameter, which it no longer has')
+    if 'ienc' in Step.provided(ns):
+        raise CliError('--sjis-ext replaces the input encoding; do not combine it with --ienc')
+    if kwargs.get('mp_parallel') and multiprocessing.get_start_method() == 'spawn':
+        raise CliError('--sjis-ext needs --no-mp-parallel: worker processes started with "spawn" '
+                       '(the default on Windows) do not have the codec')
+    try:
+        table = sjis_tunnel.load_table(ns.sjis_ext)
+    except (OSError, ValueError) as e:
+        raise CliError(str(e)) from None
+    kwargs['ienc'] = sjis_tunnel.register(table)
+    print(f'Decoding VNTextPatch text: tunnel table {ns.sjis_ext!r} ({len(table)} characters) '
+          f'and YU-RIS control codes')
+
+
 def do_decompile(steps: dict[str, Step], kwargs: dict, dry: bool) -> None:
     iroot = kwargs.get('iroot')
     if dry or not iroot:
@@ -126,6 +147,7 @@ def cmd_extract(ns, steps):
 
 def cmd_decompile(ns, steps):
     kwargs = steps['decompile'].build_kwargs(Step.provided(ns), D.DECOMPILE)
+    use_sjis_ext(ns, steps['decompile'], kwargs)
     do_decompile(steps, kwargs, ns.dry_run)
 
 
@@ -197,6 +219,9 @@ def build_parser(steps: dict[str, Step]) -> argparse.ArgumentParser:
     steps['extract'].add_arguments(sp, D.EXTRACT, RESERVED)
 
     sp = new('decompile', 'convert .ybn files into .yuri scripts (or into the official syntax)')
+    sp.add_argument('--sjis-ext', metavar='FILE',
+                    help='sjis_ext.bin of a patch made with VNTextPatch: restores its tunneled characters '
+                         'and decodes YU-RIS control codes (line/page break...); replaces --ienc')
     steps['decompile'].add_arguments(sp, D.DECOMPILE, RESERVED)
 
     sp = new('compile', 'compile the .yuri scripts and build a new .ypf')
